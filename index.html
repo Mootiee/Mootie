@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CAN HUB" />
+  <meta name="theme-color" content="#080808" />
+  <title>CAN HUB</title>
+
+  <!-- PWA manifest inline -->
+  <link rel="manifest" href="data:application/json,{
+    &quot;name&quot;: &quot;CAN HUB&quot;,
+    &quot;short_name&quot;: &quot;CAN HUB&quot;,
+    &quot;start_url&quot;: &quot;/&quot;,
+    &quot;display&quot;: &quot;standalone&quot;,
+    &quot;background_color&quot;: &quot;#080808&quot;,
+    &quot;theme_color&quot;: &quot;#080808&quot;,
+    &quot;icons&quot;: [{&quot;src&quot;: &quot;data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23080808'/><text y='.9em' font-size='80' x='10'>💪</text></svg>&quot;, &quot;sizes&quot;: &quot;any&quot;, &quot;type&quot;: &quot;image/svg+xml&quot;}]
+  }" />
+
+  <!-- React + Babel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background: #080808; color: #F0F0F0; font-family: 'Courier New', monospace; }
+    input, textarea, select, button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #111; }
+    ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+    .safe-top { padding-top: env(safe-area-inset-top); }
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ─── CONFIG — BURAYA KENDİ SUPABASE BİLGİLERİNİ GİR ─────────────────────────
+const SUPABASE_URL = "SUPABASE_URL_BURAYA";
+const SUPABASE_KEY = "SUPABASE_ANON_KEY_BURAYA";
+// ─────────────────────────────────────────────────────────────────────────────
+
+let db = null;
+try {
+  if (SUPABASE_URL !== "SUPABASE_URL_BURAYA") {
+    db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+} catch(e) {}
+
+// Storage — Supabase varsa oraya, yoksa localStorage
+async function load(key) {
+  try {
+    if (db) {
+      const { data } = await db.from("hub_data").select("value").eq("key", key).single();
+      return data ? JSON.parse(data.value) : null;
+    } else {
+      const v = localStorage.getItem("canhub_" + key);
+      return v ? JSON.parse(v) : null;
+    }
+  } catch { return null; }
+}
+
+async function persist(key, val) {
+  try {
+    const str = JSON.stringify(val);
+    if (db) {
+      await db.from("hub_data").upsert({ key, value: str }, { onConflict: "key" });
+    } else {
+      localStorage.setItem("canhub_" + key, str);
+    }
+  } catch(e) { console.error(e); }
+}
+
+// ─── DATA ─────────────────────────────────────────────────────────────────────
+const FOODS = {
+  "tavuk göğsü": { cal: 165, p: 31, c: 0, f: 3.6 },
+  "hindi göğsü": { cal: 135, p: 30, c: 0, f: 1 },
+  "yumurta": { cal: 155, p: 13, c: 1.1, f: 11 },
+  "yumurta beyazı": { cal: 52, p: 11, c: 0.7, f: 0.2 },
+  "ton balığı": { cal: 116, p: 26, c: 0, f: 1 },
+  "somon": { cal: 208, p: 20, c: 0, f: 13 },
+  "yağsız kıyma": { cal: 215, p: 26, c: 0, f: 12 },
+  "whey protein": { cal: 120, p: 24, c: 3, f: 2 },
+  "yoğurt": { cal: 61, p: 3.5, c: 4.7, f: 3.3 },
+  "süzme peynir": { cal: 98, p: 11, c: 3.4, f: 4.3 },
+  "lor peyniri": { cal: 72, p: 12, c: 2.7, f: 1 },
+  "yulaf": { cal: 389, p: 17, c: 66, f: 7 },
+  "basmati pirinç": { cal: 350, p: 7, c: 77, f: 0.6 },
+  "makarna": { cal: 371, p: 13, c: 74, f: 1.5 },
+  "tam buğday ekmek": { cal: 247, p: 13, c: 41, f: 4.2 },
+  "patates": { cal: 77, p: 2, c: 17, f: 0.1 },
+  "tatlı patates": { cal: 86, p: 1.6, c: 20, f: 0.1 },
+  "muz": { cal: 89, p: 1.1, c: 23, f: 0.3 },
+  "elma": { cal: 52, p: 0.3, c: 14, f: 0.2 },
+  "zeytinyağı": { cal: 884, p: 0, c: 0, f: 100 },
+  "fıstık ezmesi": { cal: 588, p: 25, c: 20, f: 50 },
+  "badem": { cal: 579, p: 21, c: 22, f: 50 },
+  "bal": { cal: 304, p: 0.3, c: 82, f: 0 },
+  "süt": { cal: 61, p: 3.2, c: 4.8, f: 3.3 },
+  "sebze": { cal: 25, p: 1.5, c: 5, f: 0.2 },
+  "salata": { cal: 15, p: 1.3, c: 2.9, f: 0.2 },
+};
+
+const DAYS_META = [
+  { key: "pzt", short: "Pzt", label: "PAZARTESİ", type: "Upper Body", tag: "GYM" },
+  { key: "sal", short: "Sal", label: "SALI", type: "Easy Run", tag: "ZONE 2" },
+  { key: "car", short: "Çar", label: "ÇARŞAMBA", type: "Lower Body", tag: "GYM" },
+  { key: "per", short: "Per", label: "PERŞEMBE", type: "Interval", tag: "KOŞU" },
+  { key: "cum", short: "Cum", label: "CUMA", type: "Full Body", tag: "GYM" },
+  { key: "cmt", short: "Cmt", label: "CUMARTESİ", type: "Recovery", tag: "REST" },
+  { key: "paz", short: "Paz", label: "PAZAR", type: "Long Run", tag: "ZONE 2" },
+];
+
+const PROGRAM = [
+  { key: "pzt", label: "PAZARTESİ", type: "UPPER BODY", tag: "GYM",
+    desc: "Üst vücut kuvveti ve atletik görünüm.",
+    note: "Compound hareketlerde RPE 7-8, izolasyonlarda RPE 8-9. Failure yok.",
+    sections: [
+      { title: "PUSH", moves: [
+        { name: "Incline Barbell Press", sets: "4×5-6" },
+        { name: "Dumbbell Shoulder Press", sets: "3×8-10" },
+        { name: "Lateral Raise", sets: "3×12-15" },
+      ]},
+      { title: "PULL", moves: [
+        { name: "Pull Up (Weighted/BW)", sets: "4×6-8" },
+        { name: "Chest Supported Row", sets: "4×8-10" },
+        { name: "Lat Pulldown / Cable Row", sets: "3×10-12" },
+        { name: "Face Pull", sets: "3×15" },
+      ]},
+    ]
+  },
+  { key: "sal", label: "SALI", type: "EASY RUN", tag: "KOŞU",
+    desc: "Aerobik taban + recovery geliştirme.",
+    note: "Konuşabiliyor olmalısın. Zone 2'de kal.",
+    hedef: "Zone 2 — Nabız: %60-70 Max HR",
+    sections: [
+      { title: "PROTOKOL", moves: [
+        { name: "5 dk yürüyüş (ısınma)", sets: "" },
+        { name: "8 km Zone 2 koşu", sets: "Ana Set" },
+        { name: "5 dk cooldown yürüyüş", sets: "" },
+      ]},
+    ]
+  },
+  { key: "car", label: "ÇARŞAMBA", type: "LOWER BODY", tag: "GYM",
+    desc: "Güçlü bacaklar, koşuya destek, sakatlık önleme.",
+    note: "Ağır ama kontrollü çalış. Failure yok.",
+    sections: [
+      { title: "COMPOUND", moves: [
+        { name: "Back Squat", sets: "4×4-6" },
+        { name: "Romanian Deadlift", sets: "3×6-8" },
+        { name: "Walking Lunge", sets: "3×10/bacak" },
+      ]},
+      { title: "İZOLASYON", moves: [
+        { name: "Leg Curl", sets: "3×10-12" },
+        { name: "Standing Calf Raise", sets: "4×15-20" },
+      ]},
+      { title: "CORE", moves: [
+        { name: "Cable Crunch", sets: "3×15" },
+        { name: "Hanging Leg Raise", sets: "3×10-12" },
+      ]},
+    ]
+  },
+  { key: "per", label: "PERŞEMBE", type: "INTERVAL RUN", tag: "KOŞU",
+    desc: "VO2max + yüksek yoğunluk kondisyonu.",
+    note: "Zone 4 ağırlıklı. Sprint değil, kontrollü sert tempo.",
+    sections: [
+      { title: "ISINMA", moves: [{ name: "5-10 dk hafif jog + dinamik ısınma", sets: "" }] },
+      { title: "PROGRESYON", moves: [
+        { name: "1-2. hafta", sets: "4×(4dk hızlı+3dk jog)" },
+        { name: "3-4. hafta", sets: "5×(4dk hızlı+3dk jog)" },
+        { name: "5-6. hafta", sets: "4×(5dk hızlı+3dk jog)" },
+        { name: "7-8. hafta", sets: "5×(5dk hızlı+2-3dk jog)" },
+      ]},
+      { title: "SOĞUMA", moves: [{ name: "5-10 dk hafif jog + yürüyüş", sets: "" }] },
+    ]
+  },
+  { key: "cum", label: "CUMA", type: "FULL BODY", tag: "GYM",
+    desc: "Genel kuvvet, athletic carryover, kas koruma.",
+    note: "Orta yoğunluk. Toparlanmaya odaklı gün.",
+    sections: [
+      { title: "COMPOUND", moves: [
+        { name: "Trap Bar Deadlift", sets: "3×4-6" },
+        { name: "Overhead Press", sets: "3×6-8" },
+        { name: "Pull Up", sets: "3×6-8" },
+      ]},
+      { title: "ACCESSORY", moves: [
+        { name: "Bulgarian Split Squat", sets: "2×8/bacak" },
+        { name: "Face Pull", sets: "2×15" },
+        { name: "Ab Wheel Rollout", sets: "3×8-10" },
+      ]},
+    ]
+  },
+  { key: "cmt", label: "CUMARTESİ", type: "AKTİF RECOVERY", tag: "REST",
+    desc: "Kasları dinlendir, hareket kabiliyetini artır.",
+    sections: [
+      { title: "PROTOKOL", moves: [
+        { name: "Yürüyüş", sets: "20-30 dk" },
+        { name: "Mobilite rutin", sets: "15-20 dk" },
+        { name: "Foam rolling", sets: "10 dk" },
+      ]},
+    ]
+  },
+  { key: "paz", label: "PAZAR", type: "LONG RUN", tag: "KOŞU",
+    desc: "Dayanıklılık + aerobik kapasite.",
+    note: "Ego pace yok, süre önemli.",
+    hedef: "Zone 2 — Nabız: %60-70 Max HR",
+    sections: [
+      { title: "PROTOKOL", moves: [
+        { name: "5-10 dk ısınma yürüyüş/jog", sets: "" },
+        { name: "15 km Zone 2 koşu", sets: "Ana Set" },
+        { name: "5-10 dk cooldown yürüyüş", sets: "" },
+      ]},
+    ]
+  },
+];
+
+const RUN_DAYS = ["sal", "per", "paz"];
+const REST_DAYS = ["cmt"];
+const RUN_ZONES = ["Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5"];
+const RUN_TYPES = { sal: "Easy Run", per: "Interval", paz: "Long Run" };
+
+function todayKey() { return new Date().toISOString().split("T")[0]; }
+function getWeekId(d = new Date()) {
+  const dt = new Date(d); dt.setHours(0,0,0,0);
+  dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7));
+  return dt.toISOString().split("T")[0];
+}
+function fmtDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+}
+function todayDayMeta() { return DAYS_META[(new Date().getDay() + 6) % 7]; }
+function findFood(name) {
+  const q = name.toLowerCase().trim();
+  if (FOODS[q]) return FOODS[q];
+  const key = Object.keys(FOODS).find(k => k.includes(q) || q.includes(k));
+  return key ? FOODS[key] : null;
+}
+function calcMacros(name, grams) {
+  const f = findFood(name);
+  if (!f) return null;
+  const r = grams / 100;
+  return { cal: Math.round(f.cal*r), p: Math.round(f.p*r*10)/10, c: Math.round(f.c*r*10)/10, f: Math.round(f.f*r*10)/10 };
+}
+
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+const S = {
+  page: { fontFamily: "'Courier New', monospace", background: "#080808", minHeight: "100vh", color: "#F0F0F0" },
+  col: { display: "flex", flexDirection: "column" },
+  row: { display: "flex", flexDirection: "row", alignItems: "center" },
+  micro: { fontSize: 9, letterSpacing: "2.5px", textTransform: "uppercase", color: "#444" },
+  card: { background: "#111", border: "1px solid #1A1A1A", borderRadius: 8 },
+  input: { background: "#0D0D0D", border: "1px solid #1E1E1E", borderRadius: 6, padding: "9px 12px", color: "#F0F0F0", fontFamily: "inherit", fontSize: 12, outline: "none", boxSizing: "border-box", width: "100%" },
+};
+
+const B = ({ s, children, onClick }) => <div style={s} onClick={onClick}>{children}</div>;
+const T = ({ s, children }) => <span style={s}>{children}</span>;
+
+function PBtn({ children, onClick, disabled, sm, style: st = {} }) {
+  return <button onClick={onClick} disabled={disabled} style={{ background: "#F0F0F0", color: "#080808", border: "none", borderRadius: 6, padding: sm ? "6px 14px" : "9px 20px", fontSize: sm ? 10 : 11, letterSpacing: "1px", fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: disabled ? 0.4 : 1, ...st }}>{children}</button>;
+}
+function GBtn({ children, onClick, danger, sm, style: st = {} }) {
+  return <button onClick={onClick} style={{ background: "transparent", border: `1px solid ${danger ? "#3A1A1A" : "#1E1E1E"}`, color: danger ? "#C05050" : "#555", borderRadius: 6, padding: sm ? "5px 12px" : "8px 18px", fontSize: sm ? 10 : 11, letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit", ...st }}>{children}</button>;
+}
+function Chip({ children, active, onClick }) {
+  return <button onClick={onClick} style={{ background: active ? "#F0F0F018" : "transparent", border: `1px solid ${active ? "#555" : "#1A1A1A"}`, color: active ? "#F0F0F0" : "#444", borderRadius: 4, padding: "4px 11px", fontSize: 10, letterSpacing: "1px", cursor: "pointer", fontFamily: "inherit", fontWeight: active ? 700 : 400 }}>{children}</button>;
+}
+function Field({ label, value, onChange, multiline, rows = 3, placeholder, style: st = {} }) {
+  return (
+    <B s={{ ...S.col, ...st }}>
+      {label && <T s={{ ...S.micro, marginBottom: 6 }}>{label}</T>}
+      {multiline
+        ? <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{ ...S.input, resize: "vertical" }} />
+        : <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={S.input} />}
+    </B>
+  );
+}
+
+// ─── NUTRITION ────────────────────────────────────────────────────────────────
+function NutritionLog({ dayLog, setDayLog, dateKey }) {
+  const [name, setName] = useState("");
+  const [grams, setGrams] = useState("");
+  const [meal, setMeal] = useState("Sabah");
+  const [error, setError] = useState("");
+  const [sugg, setSugg] = useState([]);
+  const meals = ["Sabah", "Öğle", "Akşam", "Ara Öğün"];
+  const entries = dayLog[dateKey] || [];
+  const totals = entries.reduce((a, e) => ({ cal: a.cal+e.cal, p: a.p+e.p, c: a.c+e.c, f: a.f+e.f }), { cal:0, p:0, c:0, f:0 });
+
+  function onName(v) {
+    setName(v); setError("");
+    if (v.length > 1) setSugg(Object.keys(FOODS).filter(k => k.includes(v.toLowerCase())).slice(0,5));
+    else setSugg([]);
+  }
+
+  async function add() {
+    if (!name.trim() || !grams) { setError("Yiyecek adı ve gram gerekli."); return; }
+    const g = parseFloat(grams);
+    const macros = calcMacros(name, g);
+    if (!macros) { setError(`"${name}" bulunamadı.`); return; }
+    const entry = { id: Date.now().toString(), name: name.trim(), grams: g, meal, ...macros };
+    const updated = { ...dayLog, [dateKey]: [...entries, entry] };
+    setDayLog(updated); await persist("nutrition", updated);
+    setName(""); setGrams(""); setError(""); setSugg([]);
+  }
+
+  async function del(id) {
+    const updated = { ...dayLog, [dateKey]: entries.filter(e => e.id !== id) };
+    setDayLog(updated); await persist("nutrition", updated);
+  }
+
+  const byMeal = meals.reduce((a, m) => { a[m] = entries.filter(e => e.meal === m); return a; }, {});
+  const pct = Math.min((totals.cal / 2700) * 100, 100);
+  const barColor = pct < 70 ? "#333" : pct < 95 ? "#C8C040" : pct < 110 ? "#4AE04A" : "#E04A4A";
+
+  return (
+    <B s={S.col}>
+      <B s={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 16 }}>
+        {[["KALORİ", totals.cal, "kcal"], ["PROTEİN", totals.p.toFixed(1), "g"], ["KARB", totals.c.toFixed(1), "g"], ["YAĞ", totals.f.toFixed(1), "g"]].map(([l,v,u]) => (
+          <B key={l} s={{ ...S.card, padding: "10px 12px" }}>
+            <T s={{ ...S.micro, display: "block", marginBottom: 4 }}>{l}</T>
+            <T s={{ fontSize: 16, fontWeight: 700 }}>{v}</T>
+            <T s={{ fontSize: 9, color: "#444" }}> {u}</T>
+            {l === "KALORİ" && <B s={{ background: "#0D0D0D", borderRadius: 3, height: 3, marginTop: 6 }}><B s={{ background: barColor, height: "100%", width: `${pct}%`, borderRadius: 3 }} /></B>}
+          </B>
+        ))}
+      </B>
+
+      <B s={{ ...S.card, padding: 14, marginBottom: 14, position: "relative" }}>
+        <T s={{ ...S.micro, display: "block", marginBottom: 10 }}>YİYECEK EKLE</T>
+        <B s={{ display: "grid", gridTemplateColumns: "1fr 70px auto", gap: 6, marginBottom: 8 }}>
+          <B s={{ position: "relative" }}>
+            <input value={name} onChange={e => onName(e.target.value)} placeholder="Tavuk göğsü, yulaf..." style={S.input} onKeyDown={e => e.key === "Enter" && add()} />
+            {sugg.length > 0 && (
+              <B s={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#161616", border: "1px solid #252525", borderRadius: 6, zIndex: 99 }}>
+                {sugg.map(s => <B key={s} onClick={() => { setName(s); setSugg([]); }} s={{ padding: "8px 12px", fontSize: 12, color: "#CCC", cursor: "pointer", borderBottom: "1px solid #1A1A1A" }}>{s}</B>)}
+              </B>
+            )}
+          </B>
+          <input value={grams} onChange={e => setGrams(e.target.value)} placeholder="gram" type="number" style={{ ...S.input, width: "100%" }} onKeyDown={e => e.key === "Enter" && add()} />
+          <select value={meal} onChange={e => setMeal(e.target.value)} style={{ ...S.input, width: "auto", fontSize: 11 }}>
+            {meals.map(m => <option key={m}>{m}</option>)}
+          </select>
+        </B>
+        {error && <T s={{ fontSize: 11, color: "#C05050", display: "block", marginBottom: 8 }}>{error}</T>}
+        <PBtn sm onClick={add}>Ekle</PBtn>
+      </B>
+
+      {meals.map(m => {
+        const items = byMeal[m];
+        if (!items.length) return null;
+        const mt = items.reduce((a,e) => ({ cal: a.cal+e.cal, p: a.p+e.p }), { cal:0, p:0 });
+        return (
+          <B key={m} s={{ marginBottom: 12 }}>
+            <B s={{ ...S.row, justifyContent: "space-between", marginBottom: 6 }}>
+              <T s={S.micro}>{m}</T>
+              <T s={{ ...S.micro, color: "#555" }}>{mt.cal} kcal · {mt.p.toFixed(0)}g P</T>
+            </B>
+            <B s={{ ...S.card, overflow: "hidden" }}>
+              {items.map((e,i) => (
+                <B key={e.id} s={{ ...S.row, justifyContent: "space-between", padding: "9px 12px", borderBottom: i<items.length-1 ? "1px solid #111" : "none" }}>
+                  <B s={S.col}>
+                    <T s={{ fontSize: 12, color: "#DDD" }}>{e.name}</T>
+                    <T s={{ fontSize: 10, color: "#444" }}>{e.grams}g</T>
+                  </B>
+                  <B s={{ ...S.row, gap: 8 }}>
+                    <T s={{ fontSize: 11, color: "#888" }}>{e.cal}</T>
+                    <T s={{ fontSize: 11, color: "#666" }}>{e.p}P</T>
+                    <T s={{ fontSize: 11, color: "#555" }}>{e.c}C</T>
+                    <GBtn danger sm onClick={() => del(e.id)} style={{ padding: "2px 7px", fontSize: 10 }}>×</GBtn>
+                  </B>
+                </B>
+              ))}
+            </B>
+          </B>
+        );
+      })}
+      {!entries.length && <T s={{ fontSize: 11, color: "#333", display: "block", textAlign: "center", padding: "32px 0" }}>Henüz yiyecek eklenmedi.</T>}
+    </B>
+  );
+}
+
+// ─── GYM LOG ──────────────────────────────────────────────────────────────────
+function GymLog({ workouts, setWorkouts, dateKey }) {
+  const log = workouts[dateKey] || { exercises: [], note: "" };
+  const [moveName, setMoveName] = useState("");
+  const [sets, setSets] = useState([{ kg: "", reps: "" }]);
+  const [note, setNote] = useState(log.note || "");
+
+  async function saveNote(v) {
+    setNote(v);
+    const u = { ...workouts, [dateKey]: { ...log, note: v } };
+    setWorkouts(u); await persist("workouts", u);
+  }
+  function addSet() { setSets(s => [...s, { kg: "", reps: "" }]); }
+  function updSet(i, f, v) { setSets(s => s.map((x,j) => j===i ? {...x,[f]:v} : x)); }
+  function remSet(i) { setSets(s => s.filter((_,j) => j!==i)); }
+
+  async function addEx() {
+    if (!moveName.trim()) return;
+    const vs = sets.filter(s => s.kg && s.reps);
+    if (!vs.length) return;
+    const vol = vs.reduce((a,s) => a + parseFloat(s.kg)*parseInt(s.reps), 0);
+    const ex = { id: Date.now().toString(), name: moveName.trim(), sets: vs.map(s => ({ kg: parseFloat(s.kg), reps: parseInt(s.reps) })), volume: Math.round(vol) };
+    const u = { ...workouts, [dateKey]: { ...log, exercises: [...(log.exercises||[]), ex] } };
+    setWorkouts(u); await persist("workouts", u);
+    setMoveName(""); setSets([{ kg: "", reps: "" }]);
+  }
+
+  async function delEx(id) {
+    const u = { ...workouts, [dateKey]: { ...log, exercises: log.exercises.filter(e => e.id!==id) } };
+    setWorkouts(u); await persist("workouts", u);
+  }
+
+  const totalVol = (log.exercises||[]).reduce((a,e) => a+e.volume, 0);
+
+  return (
+    <B s={S.col}>
+      {totalVol > 0 && (
+        <B s={{ ...S.card, padding: "12px 16px", marginBottom: 14 }}>
+          <T s={{ ...S.micro, display: "block", marginBottom: 4 }}>TOPLAM VOLÜM</T>
+          <T s={{ fontSize: 22, fontWeight: 700 }}>{totalVol.toLocaleString()}</T>
+          <T s={{ fontSize: 10, color: "#444" }}> kg</T>
+        </B>
+      )}
+
+      {(log.exercises||[]).map(ex => (
+        <B key={ex.id} s={{ ...S.card, padding: "12px 16px", marginBottom: 8 }}>
+          <B s={{ ...S.row, justifyContent: "space-between", marginBottom: 8 }}>
+            <T s={{ fontSize: 13, fontWeight: 600 }}>{ex.name}</T>
+            <B s={{ ...S.row, gap: 8 }}>
+              <T s={{ fontSize: 11, color: "#555" }}>Vol: {ex.volume.toLocaleString()}kg</T>
+              <GBtn danger sm onClick={() => delEx(ex.id)} style={{ padding: "2px 7px", fontSize: 10 }}>×</GBtn>
+            </B>
+          </B>
+          <B s={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {ex.sets.map((s,i) => <B key={i} s={{ background: "#161616", border: "1px solid #222", borderRadius: 4, padding: "3px 9px", fontSize: 11, color: "#AAA" }}>{s.kg}kg×{s.reps}</B>)}
+          </B>
+        </B>
+      ))}
+
+      <B s={{ ...S.card, padding: 14, marginBottom: 14 }}>
+        <T s={{ ...S.micro, display: "block", marginBottom: 10 }}>HAREKET EKLE</T>
+        <input value={moveName} onChange={e => setMoveName(e.target.value)} placeholder="Squat, Bench Press..." style={{ ...S.input, marginBottom: 8 }} />
+        {sets.map((s,i) => (
+          <B key={i} s={{ ...S.row, gap: 6, marginBottom: 6 }}>
+            <T s={{ ...S.micro, width: 28, flexShrink: 0 }}>S{i+1}</T>
+            <input value={s.kg} onChange={e => updSet(i,"kg",e.target.value)} placeholder="kg" type="number" style={{ ...S.input, width: 70 }} />
+            <T s={{ ...S.micro, color: "#333" }}>×</T>
+            <input value={s.reps} onChange={e => updSet(i,"reps",e.target.value)} placeholder="tekrar" type="number" style={{ ...S.input, width: 80 }} />
+            {sets.length > 1 && <GBtn sm danger onClick={() => remSet(i)} style={{ padding: "4px 9px" }}>×</GBtn>}
+          </B>
+        ))}
+        <B s={{ ...S.row, gap: 8, marginTop: 8 }}>
+          <GBtn sm onClick={addSet}>+ Set</GBtn>
+          <PBtn sm onClick={addEx}>Ekle</PBtn>
+        </B>
+      </B>
+
+      <B s={S.card}>
+        <B s={{ padding: "12px 16px" }}>
+          <T s={{ ...S.micro, display: "block", marginBottom: 8 }}>SERBEST NOT</T>
+          <textarea value={note} onChange={e => saveNote(e.target.value)} placeholder="Genel his, yorgunluk, PR..." rows={3} style={{ ...S.input, resize: "vertical" }} />
+        </B>
+      </B>
+    </B>
+  );
+}
+
+// ─── RUN LOG ──────────────────────────────────────────────────────────────────
+function RunLog({ workouts, setWorkouts, dateKey, dayKey }) {
+  const log = workouts[dateKey] || {};
+  const run = log.run || {};
+
+  async function update(fields) {
+    const u = { ...workouts, [dateKey]: { ...log, run: { ...run, ...fields } } };
+    setWorkouts(u); await persist("workouts", u);
+  }
+
+  const fields = [
+    { key: "duration", label: "SÜRE", placeholder: "dk", unit: "dk", type: "number" },
+    { key: "distance", label: "MESAFE", placeholder: "km", unit: "km", type: "number" },
+    { key: "avgHr", label: "ORT HR", placeholder: "bpm", unit: "bpm", type: "number" },
+    { key: "maxHr", label: "MAX HR", placeholder: "bpm", unit: "bpm", type: "number" },
+    { key: "avgPace", label: "ORT PACE", placeholder: "5:30", unit: "dk/km", type: "text" },
+  ];
+
+  return (
+    <B s={S.col}>
+      <B s={{ ...S.card, padding: "12px 16px", marginBottom: 14 }}>
+        <B s={{ ...S.row, justifyContent: "space-between" }}>
+          <B s={S.col}>
+            <T s={{ ...S.micro, marginBottom: 3 }}>KOŞU TİPİ</T>
+            <T s={{ fontSize: 14, fontWeight: 700 }}>{RUN_TYPES[dayKey] || "Koşu"}</T>
+          </B>
+          <select value={run.zone || "Zone 2"} onChange={e => update({ zone: e.target.value })} style={{ ...S.input, width: "auto", fontSize: 11 }}>
+            {RUN_ZONES.map(z => <option key={z}>{z}</option>)}
+          </select>
+        </B>
+      </B>
+
+      <B s={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+        {fields.map(f => (
+          <B key={f.key} s={{ ...S.card, padding: "10px 12px" }}>
+            <T s={{ ...S.micro, display: "block", marginBottom: 6 }}>{f.label}</T>
+            <B s={{ ...S.row, gap: 4 }}>
+              <input value={run[f.key] || ""} onChange={e => update({ [f.key]: e.target.value })} placeholder={f.placeholder} type={f.type} style={{ ...S.input, fontSize: 15, fontWeight: 700, padding: "4px 8px" }} />
+              <T s={{ fontSize: 9, color: "#333", whiteSpace: "nowrap" }}>{f.unit}</T>
+            </B>
+          </B>
+        ))}
+      </B>
+
+      <T s={{ ...S.micro, marginBottom: 8 }}>GENEL HİS</T>
+      <B s={{ ...S.row, gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        {["😵 Çok Zor","😓 Zor","😐 Orta","🙂 İyi","💪 Harika"].map(f => (
+          <button key={f} onClick={() => update({ feel: run.feel===f ? "" : f })} style={{ background: run.feel===f ? "#F0F0F018" : "transparent", border: `1px solid ${run.feel===f ? "#555" : "#1A1A1A"}`, color: run.feel===f ? "#F0F0F0" : "#444", borderRadius: 4, padding: "5px 10px", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{f}</button>
+        ))}
+      </B>
+
+      <B s={S.card}>
+        <B s={{ padding: "12px 16px" }}>
+          <T s={{ ...S.micro, display: "block", marginBottom: 8 }}>NOT</T>
+          <textarea value={run.note||""} onChange={e => update({ note: e.target.value })} placeholder="Bacak yorgunluğu, nefes, motivasyon..." rows={3} style={{ ...S.input, resize: "vertical" }} />
+        </B>
+      </B>
+    </B>
+  );
+}
+
+// ─── DAY VIEW ─────────────────────────────────────────────────────────────────
+function DayView({ nutrition, setNutrition, workouts, setWorkouts }) {
+  const [activeDate, setActiveDate] = useState(todayKey());
+  const [mode, setMode] = useState("nutrition");
+  const weekId = getWeekId();
+  const weekDates = DAYS_META.map((_,i) => {
+    const d = new Date(weekId); d.setDate(d.getDate()+i);
+    return d.toISOString().split("T")[0];
+  });
+  const dayIdx = weekDates.indexOf(activeDate);
+  const dayMeta = DAYS_META[dayIdx] || todayDayMeta();
+  const isRun = RUN_DAYS.includes(dayMeta?.key);
+  const isRest = REST_DAYS.includes(dayMeta?.key);
+  const tagColor = isRun ? "#4AC8F0" : isRest ? "#C8C040" : "#F0F0F0";
+
+  return (
+    <B s={S.col}>
+      <B s={{ ...S.row, gap: 4, marginBottom: 14, flexWrap: "wrap" }}>
+        {weekDates.map((dk,i) => {
+          const dm = DAYS_META[i];
+          const hasN = (nutrition[dk]||[]).length > 0;
+          const hasW = workouts[dk]?.exercises?.length > 0 || workouts[dk]?.run?.duration;
+          return (
+            <button key={dk} onClick={() => setActiveDate(dk)} style={{ background: activeDate===dk ? "#F0F0F018" : "transparent", border: `1px solid ${activeDate===dk ? "#555" : "#1A1A1A"}`, borderRadius: 4, padding: "6px 8px", cursor: "pointer", fontFamily: "inherit" }}>
+              <div style={{ fontSize: 8, letterSpacing: "1px", color: activeDate===dk ? "#888" : "#2A2A2A", marginBottom: 3 }}>{dm.short}</div>
+              <div style={{ fontSize: 8, display: "flex", gap: 2, justifyContent: "center" }}>
+                {hasN && <span style={{ color: "#4AE04A" }}>●</span>}
+                {hasW && <span style={{ color: "#4A8AE0" }}>●</span>}
+              </div>
+            </button>
+          );
+        })}
+      </B>
+
+      <B s={{ ...S.card, padding: "12px 16px", marginBottom: 14 }}>
+        <B s={{ ...S.row, justifyContent: "space-between" }}>
+          <B s={S.col}>
+            <T s={{ ...S.micro, marginBottom: 2 }}>{dayMeta?.label}</T>
+            <B s={{ ...S.row, gap: 8, marginTop: 2 }}>
+              <T s={{ fontSize: 13, fontWeight: 600 }}>{dayMeta?.type}</T>
+              <span style={{ background: isRun?"#0A1A22":isRest?"#1A1A0D":"#161616", border: `1px solid ${tagColor}44`, color: tagColor, borderRadius: 3, padding: "2px 7px", fontSize: 8, letterSpacing: "1.5px" }}>
+                {isRun ? "🏃 KOŞU" : isRest ? "🧘 REST" : "🏋️ GYM"}
+              </span>
+            </B>
+          </B>
+          <T s={{ fontSize: 10, color: "#333" }}>{fmtDate(activeDate)}</T>
+        </B>
+      </B>
+
+      <B s={{ ...S.row, gap: 6, marginBottom: 14 }}>
+        <Chip active={mode==="nutrition"} onClick={() => setMode("nutrition")}>🥗 Beslenme</Chip>
+        {!isRest && <Chip active={mode==="workout"} onClick={() => setMode("workout")}>{isRun ? "🏃 Koşu" : "🏋️ Antrenman"}</Chip>}
+      </B>
+
+      {mode==="nutrition"
+        ? <NutritionLog dayLog={nutrition} setDayLog={setNutrition} dateKey={activeDate} />
+        : isRun
+          ? <RunLog workouts={workouts} setWorkouts={setWorkouts} dateKey={activeDate} dayKey={dayMeta?.key} />
+          : <GymLog workouts={workouts} setWorkouts={setWorkouts} dateKey={activeDate} />
+      }
+    </B>
+  );
+}
+
+// ─── WEEK TRACKER ─────────────────────────────────────────────────────────────
+function WeekSection({ weeks, setWeeks, nutrition, workouts, healthData }) {
+  const thisId = getWeekId();
+  const [activeId, setActiveId] = useState(thisId);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const week = weeks.find(w => w.id === activeId);
+
+  function startEdit() {
+    const base = week ? JSON.parse(JSON.stringify(week)) : {
+      id: activeId, weekNum: weeks.length+1, startDate: activeId,
+      days: { pzt:null, sal:null, car:null, per:null, cum:null, cmt:null, paz:null },
+      metrics: { rhr:"", hrv:"", weight:"", sleep:"", fatigue:"" }, notes:"",
+    };
+    setDraft(base); setEditing(true);
+  }
+
+  async function saveWeek() {
+    const updated = [draft, ...weeks.filter(w => w.id!==draft.id)].sort((a,b) => b.startDate.localeCompare(a.startDate));
+    setWeeks(updated); await persist("weeks", updated); setEditing(false);
+  }
+
+  async function del(id) {
+    const updated = weeks.filter(w => w.id!==id);
+    setWeeks(updated); await persist("weeks", updated); setActiveId(thisId); setEditing(false);
+  }
+
+  async function runAnalysis() {
+    if (!week) return;
+    setAnalyzing(true); setAnalysis("");
+    const weekDates = DAYS_META.map((_,i) => { const d=new Date(week.startDate); d.setDate(d.getDate()+i); return d.toISOString().split("T")[0]; });
+    const nutLines = weekDates.map((dk,i) => {
+      const entries = nutrition[dk]||[];
+      if (!entries.length) return null;
+      const t = entries.reduce((a,e) => ({ cal:a.cal+e.cal, p:a.p+e.p }), { cal:0, p:0 });
+      return `${DAYS_META[i].short}: ${t.cal}kcal P:${t.p.toFixed(0)}g`;
+    }).filter(Boolean);
+    const wrkLines = weekDates.map((dk,i) => {
+      const log = workouts[dk]; if (!log) return null;
+      const dm = DAYS_META[i];
+      if (RUN_DAYS.includes(dm.key) && log.run?.duration) {
+        const r = log.run;
+        return `${dm.short}(${r.type||dm.type}): ${r.duration}dk ${r.distance||"?"}km HR:${r.avgHr||"?"} ${r.zone||""} ${r.feel||""}`;
+      }
+      if (log.exercises?.length) {
+        const vol = log.exercises.reduce((a,e) => a+e.volume, 0);
+        return `${dm.short}: ${log.exercises.map(e=>e.name).join(", ")} Vol:${vol.toLocaleString()}kg`;
+      }
+      return null;
+    }).filter(Boolean);
+
+    const prompt = `Sen elit bir hybrid atletizm koçusun. Aşağıda Can'ın bu haftaki verileri var.
+
+Can profili: Hybrid athlete, estetik + kondisyon hedefi, koşuya yeni başladı, ağırlık geçmişi var.
+Program: Pzt Upper Body, Sal Zone2, Çar Lower Body, Per Interval, Cum Full Body, Cmt Recovery, Paz Long Run.
+Kalori hedefi: 2600-2800kcal, Protein: 180-200g.
+
+HAFTALIK VERİLER:
+Antrenman: ${DAYS_META.map((d,i) => `${d.short}:${week.days[d.key]==="done"?"✓":week.days[d.key]==="skip"?"✗":"—"}`).join(" ")}
+Loglar: ${wrkLines.length ? wrkLines.join(" | ") : "Kayıt yok"}
+Beslenme: ${nutLines.length ? nutLines.join(" | ") : "Kayıt yok"}
+Metrikler: RHR:${week.metrics.rhr||"—"} HRV:${week.metrics.hrv||"—"} Ağırlık:${week.metrics.weight||"—"}kg Uyku:${week.metrics.sleep||"—"}sa Yorgunluk:${week.metrics.fatigue||"—"}/10
+Not: ${week.notes||"Yok"}
+
+Şunları analiz et:
+1. Bu haftanın genel değerlendirmesi
+2. Beslenme analizi
+3. Recovery durumu (HRV/RHR yorumu)
+4. Koşu gelişimi
+5. Önümüzdeki hafta için 3 somut öneri
+
+Türkçe, direkt, bilimsel yaz. Motivasyon lafı değil, gerçek analiz.`;
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1500, messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const text = data.content?.map(c => c.text||"").join("") || "Analiz alınamadı.";
+      setAnalysis(text);
+      const uw = { ...week, analysis: text, analyzedAt: new Date().toISOString() };
+      const updated = [uw, ...weeks.filter(w => w.id!==week.id)].sort((a,b) => b.startDate.localeCompare(a.startDate));
+      setWeeks(updated); await persist("weeks", updated);
+    } catch(e) { setAnalysis("Hata: "+e.message); }
+    finally { setAnalyzing(false); }
+  }
+
+  const done = week ? Object.values(week.days).filter(v => v==="done").length : 0;
+  const statusMap = { done: ["#0D1F0D","#1A4A1A","#4AE04A","TAMAM"], skip: ["#1F0D0D","#4A1A1A","#E04A4A","ATLANDI"], rest: ["#1A1A0D","#3A3A1A","#C8C040","DİNLENME"] };
+
+  return (
+    <B s={S.col}>
+      <B s={{ ...S.row, gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        <T s={{ ...S.micro, marginRight: 4 }}>HAFTA</T>
+        {weeks.map(w => <Chip key={w.id} active={activeId===w.id} onClick={() => { setActiveId(w.id); setEditing(false); setAnalysis(w.analysis||""); }}>H{w.weekNum} {fmtDate(w.startDate)}</Chip>)}
+        <Chip active={false} onClick={() => { setActiveId(thisId); setEditing(false); setAnalysis(""); }}>+ Bu Hafta</Chip>
+      </B>
+
+      {!editing ? (
+        week ? (
+          <B s={S.col}>
+            <B s={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(100px,1fr))", gap: 8, marginBottom: 14 }}>
+              {[["Tamamlanan",`${done}/7`],["RHR",week.metrics.rhr?`${week.metrics.rhr}bpm`:"—"],["HRV",week.metrics.hrv?`${week.metrics.hrv}ms`:"—"],["Ağırlık",week.metrics.weight?`${week.metrics.weight}kg`:"—"],["Uyku",week.metrics.sleep?`${week.metrics.sleep}sa`:"—"],["Yorgunluk",week.metrics.fatigue?`${week.metrics.fatigue}/10`:"—"]].map(([l,v]) => (
+                <B key={l} s={{ ...S.card, padding: "10px 12px" }}>
+                  <T s={{ ...S.micro, display: "block", marginBottom: 4 }}>{l}</T>
+                  <T s={{ fontSize: 14, fontWeight: 700 }}>{v}</T>
+                </B>
+              ))}
+            </B>
+
+            <B s={{ ...S.card, overflow: "hidden", marginBottom: 14 }}>
+              {DAYS_META.map((d,i) => {
+                const s = week.days[d.key];
+                const c = statusMap[s];
+                return (
+                  <B key={d.key} s={{ ...S.row, justifyContent: "space-between", padding: "10px 14px", borderBottom: i<6?"1px solid #111":"none" }}>
+                    <B s={S.col}>
+                      <T s={{ ...S.micro, marginBottom: 2 }}>{d.label}</T>
+                      <T s={{ fontSize: 11, color: "#555" }}>{d.type}</T>
+                    </B>
+                    {c ? <span style={{ background:c[0], border:`1px solid ${c[1]}`, color:c[2], borderRadius:3, padding:"2px 7px", fontSize:9 }}>{c[3]}</span>
+                       : <T s={{ ...S.micro, color: "#222" }}>—</T>}
+                  </B>
+                );
+              })}
+            </B>
+
+            {week.notes && <B s={{ ...S.card, padding:"12px 14px", marginBottom:14 }}><T s={{ fontSize:12, color:"#777", lineHeight:1.7 }}>{week.notes}</T></B>}
+
+            <B s={{ ...S.row, gap: 8, marginBottom: 20 }}>
+              <PBtn onClick={startEdit}>Düzenle</PBtn>
+              <GBtn danger onClick={() => del(week.id)}>Sil</GBtn>
+            </B>
+
+            <B s={{ ...S.card, padding: 18 }}>
+              <B s={{ ...S.row, justifyContent: "space-between", marginBottom: 12 }}>
+                <B s={S.col}>
+                  <T s={{ ...S.micro, marginBottom: 2 }}>PAZAR ANALİZİ</T>
+                  {week.analyzedAt && <T s={{ fontSize: 10, color: "#333" }}>Son: {fmtDate(week.analyzedAt)}</T>}
+                </B>
+                <PBtn onClick={runAnalysis} disabled={analyzing}>{analyzing ? "Analiz ediliyor..." : "Analiz Et"}</PBtn>
+              </B>
+
+              {(analysis || week.analysis) ? (
+                <B s={{ background: "#0D0D0D", borderRadius: 6, padding: 14, borderLeft: "2px solid #333" }}>
+                  <T s={{ fontSize: 12, color: "#AAA", lineHeight: 1.8, display: "block", whiteSpace: "pre-wrap" }}>{analysis || week.analysis}</T>
+                  <B s={{ marginTop: 12 }}>
+                    <GBtn sm onClick={() => { navigator.clipboard.writeText(analysis||week.analysis); setCopied(true); setTimeout(()=>setCopied(false),2000); }}>{copied ? "✓ Kopyalandı" : "Kopyala"}</GBtn>
+                  </B>
+                </B>
+              ) : !analyzing && (
+                <T s={{ fontSize: 11, color: "#333", lineHeight: 1.7 }}>Antrenman, beslenme ve Health verilerini analiz edip önümüzdeki hafta planını çıkarır. Pazar günü çalıştır.</T>
+              )}
+            </B>
+          </B>
+        ) : (
+          <B s={{ textAlign: "center", padding: "50px 0" }}>
+            <T s={{ fontSize: 11, color: "#333", display: "block", marginBottom: 16 }}>Bu hafta için kayıt yok.</T>
+            <PBtn onClick={startEdit}>Haftayı Başlat</PBtn>
+          </B>
+        )
+      ) : (
+        <B s={S.col}>
+          <T s={{ ...S.micro, marginBottom: 16, color: "#888" }}>HAFTA {draft.weekNum} — {fmtDate(draft.startDate)}</T>
+          <T s={{ ...S.micro, marginBottom: 8 }}>GÜNLER</T>
+          <B s={{ ...S.card, overflow: "hidden", marginBottom: 16 }}>
+            {DAYS_META.map((d,i) => (
+              <B key={d.key} s={{ ...S.row, justifyContent: "space-between", padding: "10px 14px", borderBottom: i<6?"1px solid #111":"none" }}>
+                <B s={S.col}>
+                  <T s={{ ...S.micro, marginBottom: 2 }}>{d.label}</T>
+                  <T s={{ fontSize: 11, color: "#555" }}>{d.type}</T>
+                </B>
+                <B s={{ ...S.row, gap: 4 }}>
+                  {[["done","✓","#0D1F0D","#1A4A1A","#4AE04A"],["skip","✗","#1F0D0D","#4A1A1A","#E04A4A"],["rest","~","#1A1A0D","#3A3A1A","#C8C040"]].map(([s,icon,bg,br,color]) => (
+                    <button key={s} onClick={() => setDraft(dr => ({ ...dr, days: { ...dr.days, [d.key]: dr.days[d.key]===s ? null : s } }))} style={{ width:28, height:26, borderRadius:4, cursor:"pointer", fontFamily:"inherit", fontSize:12, background:draft.days[d.key]===s?bg:"transparent", border:`1px solid ${draft.days[d.key]===s?br:"#1E1E1E"}`, color:draft.days[d.key]===s?color:"#333" }}>{icon}</button>
+                  ))}
+                </B>
+              </B>
+            ))}
+          </B>
+          <T s={{ ...S.micro, marginBottom: 8 }}>APPLE HEALTH</T>
+          <B s={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: 8, marginBottom: 16 }}>
+            {[["rhr","RHR (bpm)"],["hrv","HRV (ms)"],["weight","Ağırlık (kg)"],["sleep","Uyku (sa)"],["fatigue","Yorgunluk /10"]].map(([k,l]) => (
+              <Field key={k} label={l} value={draft.metrics[k]} onChange={v => setDraft(d => ({ ...d, metrics: { ...d.metrics, [k]:v } }))} placeholder="—" />
+            ))}
+          </B>
+          <Field label="HAFTA NOTU" multiline rows={3} value={draft.notes} onChange={v => setDraft(d => ({ ...d, notes:v }))} placeholder="Özet, gözlem, genel his..." />
+          <B s={{ ...S.row, gap: 8, marginTop: 14 }}>
+            <PBtn onClick={saveWeek}>Kaydet</PBtn>
+            <GBtn onClick={() => setEditing(false)}>İptal</GBtn>
+          </B>
+        </B>
+      )}
+    </B>
+  );
+}
+
+// ─── PROGRAM ──────────────────────────────────────────────────────────────────
+function ProgramSection({ weeks }) {
+  const todayIdx = (new Date().getDay()+6)%7;
+  const [activeIdx, setActiveIdx] = useState(todayIdx);
+  const [showMacros, setShowMacros] = useState(false);
+  const day = PROGRAM[activeIdx];
+  const isGym = day.tag==="GYM"; const isRun = day.tag==="KOŞU";
+  const tagColor = isGym?"#F0F0F0":isRun?"#4AC8F0":"#C8C040";
+  const weekId = getWeekId();
+  const thisWeek = weeks.find(w => w.id===weekId);
+  const status = thisWeek?.days?.[day.key];
+
+  return (
+    <B s={S.col}>
+      <B s={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 3, marginBottom: 16 }}>
+        {PROGRAM.map((d,i) => {
+          const isToday = i===todayIdx;
+          const ws = thisWeek?.days?.[d.key];
+          const dot = ws==="done"?"#4AE04A":ws==="skip"?"#E04A4A":ws==="rest"?"#C8C040":null;
+          return (
+            <button key={d.key} onClick={() => setActiveIdx(i)} style={{ background:activeIdx===i?"#1A1A1A":"transparent", border:`1px solid ${activeIdx===i?"#333":"#141414"}`, borderRadius:5, padding:"7px 3px", cursor:"pointer", fontFamily:"inherit", textAlign:"center" }}>
+              <div style={{ fontSize:7, letterSpacing:"1px", color:activeIdx===i?"#777":"#222", marginBottom:4 }}>{d.label.slice(0,3)}</div>
+              <div style={{ fontSize:8, marginBottom:4 }}>{["🏋️","🏃","🏋️","⚡","🏋️","🧘","🌅"][i]}</div>
+              <div style={{ width:5, height:5, borderRadius:"50%", background:dot||(isToday?"#333":"transparent"), margin:"0 auto" }} />
+            </button>
+          );
+        })}
+      </B>
+
+      <B s={{ ...S.card, padding:"14px 16px", marginBottom:14, borderLeft:`2px solid ${tagColor}` }}>
+        <B s={{ ...S.row, justifyContent:"space-between", marginBottom:6 }}>
+          <B s={S.col}>
+            <T s={{ ...S.micro, marginBottom:3 }}>{day.label}</T>
+            <T s={{ fontSize:16, fontWeight:700 }}>{day.type}</T>
+          </B>
+          <B s={{ ...S.col, alignItems:"flex-end", gap:5 }}>
+            <span style={{ background:isGym?"#F0F0F018":isRun?"#0A1A22":"#1A1A0D", border:`1px solid ${tagColor}44`, color:tagColor, borderRadius:3, padding:"2px 8px", fontSize:8, letterSpacing:"1.5px" }}>{day.tag}</span>
+            {status && (() => { const c={"done":["#0D1F0D","#1A4A1A","#4AE04A","✓ TAMAM"],"skip":["#1F0D0D","#4A1A1A","#E04A4A","✗ ATLANDI"],"rest":["#1A1A0D","#3A3A1A","#C8C040","~ DİNLENME"]}[status]; return c ? <span style={{ background:c[0], border:`1px solid ${c[1]}`, color:c[2], borderRadius:3, padding:"2px 7px", fontSize:8 }}>{c[3]}</span> : null; })()}
+          </B>
+        </B>
+        <T s={{ fontSize:11, color:"#666" }}>{day.desc}</T>
+      </B>
+
+      {day.sections.map((sec,si) => (
+        <B key={si} s={{ marginBottom:14 }}>
+          <T s={{ ...S.micro, display:"block", marginBottom:8, color:"#555" }}>{sec.title}</T>
+          <B s={{ ...S.card, overflow:"hidden" }}>
+            {sec.moves.map((m,mi) => (
+              <B key={mi} s={{ ...S.row, justifyContent:"space-between", padding:"10px 14px", borderBottom:mi<sec.moves.length-1?"1px solid #111":"none" }}>
+                <T s={{ fontSize:12, color:"#DDD" }}>{m.name}</T>
+                {m.sets && <span style={{ background:"#161616", border:"1px solid #222", borderRadius:4, padding:"2px 9px", fontSize:11, color:tagColor, fontWeight:700 }}>{m.sets}</span>}
+              </B>
+            ))}
+          </B>
+        </B>
+      ))}
+
+      {day.hedef && <B s={{ ...S.card, padding:"10px 14px", marginBottom:14, background:"#0A1A22", borderLeft:"2px solid #4AC8F0" }}><T s={{ fontSize:11, color:"#4AC8F0" }}>❤️ {day.hedef}</T></B>}
+      {day.note && <B s={{ ...S.card, padding:"10px 14px", marginBottom:16, borderLeft:"2px solid #2A2A2A" }}><T s={{ fontSize:11, color:"#666", lineHeight:1.6 }}>{day.note}</T></B>}
+
+      <button onClick={() => setShowMacros(v=>!v)} style={{ background:"transparent", border:"1px solid #1A1A1A", borderRadius:6, padding:"8px 14px", cursor:"pointer", fontFamily:"inherit", color:"#444", fontSize:9, letterSpacing:"2px", width:"100%", marginBottom: showMacros?14:0 }}>
+        {showMacros?"▲":"▼"} BESLENME & HEDEFLER
+      </button>
+
+      {showMacros && (
+        <B s={{ ...S.card, padding:16, marginTop:0 }}>
+          {[["KALORİ (GYM/INTERVAL)","2650-2800 kcal"],["KALORİ (ZONE2/LONG RUN)","2300-2450 kcal"],["PROTEİN","180-200g (~2.2g/kg)"],["KARBONHİDRAT","250-350g"],["YAĞ","70-90g"],["SU","3-4L/gün"]].map(([l,v]) => (
+            <B key={l} s={{ ...S.row, justifyContent:"space-between", padding:"7px 0", borderBottom:"1px solid #141414" }}>
+              <T s={{ ...S.micro }}>{l}</T>
+              <T s={{ fontSize:12, fontWeight:700 }}>{v}</T>
+            </B>
+          ))}
+        </B>
+      )}
+    </B>
+  );
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function Dashboard({ weeks, nutrition, workouts }) {
+  const today = todayKey();
+  const dayMeta = todayDayMeta();
+  const thisWeek = weeks.find(w => w.id===getWeekId());
+  const todayNut = nutrition[today] || [];
+  const todayWrk = workouts[today] || { exercises:[] };
+  const totals = todayNut.reduce((a,e) => ({ cal:a.cal+e.cal, p:a.p+e.p }), { cal:0, p:0 });
+  const todayVol = (todayWrk.exercises||[]).reduce((a,e) => a+e.volume, 0);
+  const totalSessions = weeks.reduce((a,w) => a+Object.values(w.days).filter(v=>v==="done").length, 0);
+  const todayStatus = thisWeek?.days?.[dayMeta.key];
+  const statusC = {"done":["#0D1F0D","#1A4A1A","#4AE04A","TAMAM"],"skip":["#1F0D0D","#4A1A1A","#E04A4A","ATLANDI"],"rest":["#1A1A0D","#3A3A1A","#C8C040","DİNLENME"]}[todayStatus];
+
+  return (
+    <B s={S.col}>
+      <B s={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:8, marginBottom:14 }}>
+        {[["Toplam Antrenman",totalSessions,"seans"],["Kayıtlı Hafta",weeks.length,"hafta"],["Bugün Kalori",totals.cal,"kcal"],["Bugün Protein",`${totals.p.toFixed(0)}`,"g"],["Bugün Volüm",todayVol>0?todayVol.toLocaleString():"—",todayVol>0?"kg":""]].map(s => (
+          <B key={s[0]} s={{ ...S.card, padding:"11px 13px" }}>
+            <T s={{ ...S.micro, display:"block", marginBottom:5 }}>{s[0]}</T>
+            <B s={{ ...S.row, alignItems:"baseline", gap:3 }}>
+              <T s={{ fontSize:18, fontWeight:700 }}>{s[1]}</T>
+              {s[2] && <T s={{ fontSize:9, color:"#444" }}>{s[2]}</T>}
+            </B>
+          </B>
+        ))}
+      </B>
+
+      <B s={{ ...S.card, padding:"14px 16px", marginBottom:12 }}>
+        <B s={{ ...S.row, justifyContent:"space-between", marginBottom:8 }}>
+          <T s={S.micro}>BUGÜN — {dayMeta.label}</T>
+          {statusC ? <span style={{ background:statusC[0], border:`1px solid ${statusC[1]}`, color:statusC[2], borderRadius:3, padding:"2px 7px", fontSize:9 }}>{statusC[3]}</span> : <T s={{ ...S.micro, color:"#222" }}>—</T>}
+        </B>
+        <T s={{ fontSize:14, fontWeight:600, display:"block", marginBottom:3 }}>{dayMeta.type}</T>
+        <T s={{ fontSize:11, color:"#555" }}>{dayMeta.tag}</T>
+      </B>
+
+      {thisWeek && (
+        <B s={{ ...S.card, padding:"14px 16px", marginBottom:12 }}>
+          <T s={{ ...S.micro, display:"block", marginBottom:12 }}>BU HAFTA</T>
+          <B s={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
+            {DAYS_META.map((d,i) => {
+              const s = thisWeek.days[d.key];
+              const isToday = i===(new Date().getDay()+6)%7;
+              const dot = s==="done"?"#4AE04A":s==="skip"?"#E04A4A":s==="rest"?"#C8C040":"#1E1E1E";
+              return (
+                <B key={d.key} s={{ textAlign:"center", padding:"7px 3px", borderRadius:5, background:isToday?"#161616":"transparent" }}>
+                  <T s={{ ...S.micro, display:"block", marginBottom:6, color:isToday?"#777":"#2A2A2A" }}>{d.short}</T>
+                  <B s={{ width:7, height:7, borderRadius:"50%", background:dot, margin:"0 auto", boxShadow:s==="done"?"0 0 4px #4AE04A44":"none" }} />
+                </B>
+              );
+            })}
+          </B>
+        </B>
+      )}
+
+      {todayNut.length > 0 && (
+        <B s={{ ...S.card, padding:"14px 16px" }}>
+          <T s={{ ...S.micro, display:"block", marginBottom:12 }}>BUGÜN MAKRO</T>
+          {[["Kalori",totals.cal,2700,"kcal"],["Protein",totals.p,190,"g"]].map(([l,v,t,u]) => (
+            <B key={l} s={{ marginBottom:10 }}>
+              <B s={{ ...S.row, justifyContent:"space-between", marginBottom:4 }}>
+                <T s={S.micro}>{l}</T>
+                <T s={{ fontSize:11, color:"#888" }}>{Math.round(v)} / {t} {u}</T>
+              </B>
+              <B s={{ background:"#0D0D0D", borderRadius:3, height:4, overflow:"hidden" }}>
+                <B s={{ background:Math.min(v/t,1)>0.9?"#4AE04A":"#333", height:"100%", width:`${Math.min((v/t)*100,100)}%`, borderRadius:3 }} />
+              </B>
+            </B>
+          ))}
+        </B>
+      )}
+    </B>
+  );
+}
+
+// ─── HEALTH SECTION ───────────────────────────────────────────────────────────
+function HealthSection({ healthData, setHealthData }) {
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState("");
+  const [expandedDay, setExpandedDay] = useState(null);
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".xml")) { setError("Sadece XML dosyası yükle."); return; }
+    setError(""); setUploading(true);
+    try {
+      const text = await file.text();
+      const chunk = text.slice(0, 600000);
+      setUploading(false); setAnalyzing(true);
+      const prompt = `Apple Health XML verisinden şunları çıkar, SADECE JSON döndür:
+{"days":[{"date":"YYYY-MM-DD","hrv":number|null,"rhr":number|null,"sleepHours":number|null,"sleepQuality":{"rem":number|null,"deep":number|null},"activeCalories":number|null,"steps":number|null,"workouts":[{"type":"string","duration":number,"avgHr":number|null,"maxHr":number|null,"calories":number|null,"distance":number|null}]}],"summary":{"avgHrv":number|null,"avgRhr":number|null,"avgSleep":number|null,"totalActiveCalories":number|null,"totalSteps":number|null,"workoutCount":number,"dateRange":"string"},"insights":["string","string","string"]}
+HRV=HKQuantityTypeIdentifierHeartRateVariabilitySDNN, RHR=HKQuantityTypeIdentifierRestingHeartRate, Uyku=HKCategoryTypeIdentifierSleepAnalysis, AktifKal=HKQuantityTypeIdentifierActiveEnergyBurned, Antrenman=HKWorkout. Türkçe insight yaz.
+XML:${chunk}`;
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, messages: [{ role:"user", content: prompt }] }),
+      });
+      const data = await res.json();
+      const raw = data.content?.map(c=>c.text||"").join("").trim();
+      const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      const entry = { ...parsed, uploadedAt: new Date().toISOString(), fileName: file.name };
+      const updated = [entry, ...(healthData||[])].slice(0,10);
+      setHealthData(updated); await persist("healthData", updated);
+    } catch(err) { setError("Hata: "+err.message); }
+    finally { setAnalyzing(false); }
+  }
+
+  const latest = healthData?.[0];
+  const days = latest?.days || [];
+
+  return (
+    <B s={S.col}>
+      <B s={{ ...S.card, padding:18, marginBottom:14 }}>
+        <T s={{ ...S.micro, display:"block", marginBottom:6 }}>APPLE HEALTH XML</T>
+        <T s={{ fontSize:11, color:"#555", display:"block", marginBottom:12, lineHeight:1.6 }}>Health → Profil → Dışa Aktar → ZIP aç → export.xml yükle.</T>
+        <label style={{ display:"inline-flex", alignItems:"center", gap:8, background:"#F0F0F0", color:"#080808", borderRadius:6, padding:"7px 16px", fontSize:11, letterSpacing:"1px", fontWeight:700, cursor:(uploading||analyzing)?"not-allowed":"pointer", opacity:(uploading||analyzing)?0.5:1 }}>
+          {uploading?"⏳ Okunuyor...":analyzing?"🤖 Analiz ediliyor...":latest?"↑ Yeni XML":"XML Yükle"}
+          <input type="file" accept=".xml" onChange={handleFile} style={{ display:"none" }} disabled={uploading||analyzing} />
+        </label>
+        {error && <T s={{ fontSize:11, color:"#C05050", display:"block", marginTop:8 }}>{error}</T>}
+      </B>
+
+      {latest && (
+        <>
+          <B s={{ ...S.row, justifyContent:"space-between", marginBottom:10 }}>
+            <T s={S.micro}>{latest.summary?.dateRange} · {days.length} gün</T>
+            <T s={{ fontSize:10, color:"#333" }}>{fmtDate(latest.uploadedAt)}</T>
+          </B>
+          <B s={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))", gap:8, marginBottom:14 }}>
+            {[["ORT HRV",latest.summary?.avgHrv?Math.round(latest.summary.avgHrv)+"ms":null],["ORT RHR",latest.summary?.avgRhr?Math.round(latest.summary.avgRhr)+"bpm":null],["ORT UYKU",latest.summary?.avgSleep?latest.summary.avgSleep.toFixed(1)+"sa":null],["AKTİF KAL",latest.summary?.totalActiveCalories?Math.round(latest.summary.totalActiveCalories)+"kcal":null],["ADIM",latest.summary?.totalSteps?Math.round(latest.summary.totalSteps/1000)+"K":null],["ANTRENMAN",latest.summary?.workoutCount!==undefined?latest.summary.workoutCount+"seans":null]].map(([l,v]) => (
+              <B key={l} s={{ ...S.card, padding:"10px 12px" }}>
+                <T s={{ ...S.micro, display:"block", marginBottom:4 }}>{l}</T>
+                <T s={{ fontSize:14, fontWeight:700, color:v?"#F0F0F0":"#333" }}>{v||"—"}</T>
+              </B>
+            ))}
+          </B>
+          {latest.insights?.length > 0 && (
+            <B s={{ ...S.card, padding:"14px 16px", marginBottom:14 }}>
+              <T s={{ ...S.micro, display:"block", marginBottom:10 }}>CLAUDE ANALİZİ</T>
+              {latest.insights.map((ins,i) => (
+                <B key={i} s={{ ...S.row, gap:8, marginBottom:8, alignItems:"flex-start" }}>
+                  <T s={{ color:"#4AE04A", fontSize:10, flexShrink:0, marginTop:1 }}>→</T>
+                  <T s={{ fontSize:12, color:"#AAA", lineHeight:1.6 }}>{ins}</T>
+                </B>
+              ))}
+            </B>
+          )}
+          <T s={{ ...S.micro, marginBottom:10 }}>GÜNLÜK DETAY</T>
+          {days.map(day => (
+            <B key={day.date} s={{ ...S.card, marginBottom:8, overflow:"hidden", cursor:"pointer" }} onClick={() => setExpandedDay(expandedDay===day.date?null:day.date)}>
+              <B s={{ ...S.row, justifyContent:"space-between", padding:"11px 14px" }}>
+                <B s={S.col}>
+                  <T s={{ fontSize:12, fontWeight:500 }}>{new Date(day.date).toLocaleDateString("tr-TR",{ weekday:"long", day:"numeric", month:"short" })}</T>
+                  <B s={{ ...S.row, gap:10, marginTop:3 }}>
+                    {day.hrv && <T s={{ fontSize:10, color:"#555" }}>HRV {Math.round(day.hrv)}ms</T>}
+                    {day.rhr && <T s={{ fontSize:10, color:"#555" }}>RHR {Math.round(day.rhr)}bpm</T>}
+                    {day.sleepHours && <T s={{ fontSize:10, color:"#555" }}>Uyku {day.sleepHours.toFixed(1)}sa</T>}
+                  </B>
+                </B>
+                <T s={{ fontSize:10, color:"#333" }}>{expandedDay===day.date?"▲":"▼"}</T>
+              </B>
+              {expandedDay===day.date && (
+                <B s={{ padding:"0 14px 12px", borderTop:"1px solid #141414" }}>
+                  <B s={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))", gap:6, marginTop:10 }}>
+                    {[["HRV",day.hrv?Math.round(day.hrv)+"ms":"—"],["RHR",day.rhr?Math.round(day.rhr)+"bpm":"—"],["Uyku",day.sleepHours?day.sleepHours.toFixed(1)+"sa":"—"],["REM",day.sleepQuality?.rem?day.sleepQuality.rem.toFixed(1)+"sa":"—"],["Derin",day.sleepQuality?.deep?day.sleepQuality.deep.toFixed(1)+"sa":"—"],["Aktif Kal",day.activeCalories?Math.round(day.activeCalories)+"kcal":"—"],["Adım",day.steps?Math.round(day.steps/1000)+"K":"—"]].map(([l,v]) => (
+                      <B key={l} s={{ background:"#0D0D0D", borderRadius:5, padding:"7px 9px" }}>
+                        <T s={{ ...S.micro, display:"block", marginBottom:3 }}>{l}</T>
+                        <T s={{ fontSize:12, fontWeight:600 }}>{v}</T>
+                      </B>
+                    ))}
+                  </B>
+                  {day.workouts?.map((w,wi) => (
+                    <B key={wi} s={{ background:"#0D1626", border:"1px solid #1A3A5A", borderRadius:5, padding:"9px 11px", marginTop:8 }}>
+                      <T s={{ fontSize:12, fontWeight:600, color:"#4A8AE0", display:"block", marginBottom:5 }}>{w.type}</T>
+                      <B s={{ ...S.row, gap:12, flexWrap:"wrap" }}>
+                        {w.duration && <T s={{ fontSize:11, color:"#666" }}>{Math.round(w.duration)}dk</T>}
+                        {w.avgHr && <T s={{ fontSize:11, color:"#666" }}>OrtHR:{Math.round(w.avgHr)}</T>}
+                        {w.distance && <T s={{ fontSize:11, color:"#666" }}>{(w.distance/1000).toFixed(2)}km</T>}
+                        {w.calories && <T s={{ fontSize:11, color:"#666" }}>{Math.round(w.calories)}kcal</T>}
+                      </B>
+                    </B>
+                  ))}
+                </B>
+              )}
+            </B>
+          ))}
+        </>
+      )}
+      {!latest && !uploading && !analyzing && (
+        <B s={{ textAlign:"center", padding:"50px 0" }}>
+          <T s={{ fontSize:28, display:"block", marginBottom:10 }}>🏥</T>
+          <T s={{ fontSize:11, color:"#333" }}>Health uygulamasından XML export alıp yükle.</T>
+        </B>
+      )}
+    </B>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+const TABS = [
+  { id:"dash", label:"ÖZET" },
+  { id:"program", label:"PROGRAM" },
+  { id:"day", label:"GÜN" },
+  { id:"week", label:"HAFTA" },
+  { id:"health", label:"HEALTH" },
+];
+
+function App() {
+  const [tab, setTab] = useState("dash");
+  const [weeks, setWeeks] = useState([]);
+  const [nutrition, setNutrition] = useState({});
+  const [workouts, setWorkouts] = useState({});
+  const [healthData, setHealthData] = useState([]);
+  const [ready, setReady] = useState(false);
+  const [dbMode, setDbMode] = useState("local");
+
+  useEffect(() => {
+    (async () => {
+      if (db) setDbMode("supabase");
+      const [w, nut, wrk, hd] = await Promise.all([load("weeks"), load("nutrition"), load("workouts"), load("healthData")]);
+      if (w) setWeeks(w);
+      if (nut) setNutrition(nut);
+      if (wrk) setWorkouts(wrk);
+      if (hd) setHealthData(hd);
+      setReady(true);
+    })();
+  }, []);
+
+  if (!ready) return (
+    <div style={{ ...S.page, display:"flex", alignItems:"center", justifyContent:"center", height:"100vh" }}>
+      <span style={{ fontSize:9, letterSpacing:"2px", color:"#444" }}>YÜKLENİYOR...</span>
+    </div>
+  );
+
+  return (
+    <div style={S.page}>
+      {/* Header */}
+      <div className="safe-top" style={{ borderBottom:"1px solid #141414", padding:"12px 18px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={S.col}>
+          <span style={{ ...S.micro }}>HYBRID ATHLETE</span>
+          <span style={{ fontSize:14, fontWeight:700, letterSpacing:"-0.3px", marginTop:2 }}>CAN HUB</span>
+        </div>
+        <div style={{ ...S.row, gap:6 }}>
+          <div style={{ width:6, height:6, borderRadius:"50%", background:"#4AE04A", boxShadow:"0 0 4px #4AE04A" }} />
+          <span style={{ fontSize:9, color:"#333" }}>{dbMode==="supabase"?"SUPABASE":"LOCAL"}</span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ borderBottom:"1px solid #141414", display:"flex", overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ background:"transparent", border:"none", borderBottom:tab===t.id?"1px solid #F0F0F0":"1px solid transparent", color:tab===t.id?"#F0F0F0":"#333", padding:"10px 14px", fontSize:9, letterSpacing:"2px", cursor:"pointer", fontFamily:"inherit", fontWeight:tab===t.id?700:400, whiteSpace:"nowrap" }}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div style={{ padding:"18px 16px", maxWidth:860, paddingBottom:40 }} className="safe-bottom">
+        {tab==="dash" && <Dashboard weeks={weeks} nutrition={nutrition} workouts={workouts} />}
+        {tab==="program" && <ProgramSection weeks={weeks} />}
+        {tab==="day" && <DayView nutrition={nutrition} setNutrition={setNutrition} workouts={workouts} setWorkouts={setWorkouts} />}
+        {tab==="week" && <WeekSection weeks={weeks} setWeeks={setWeeks} nutrition={nutrition} workouts={workouts} healthData={healthData} />}
+        {tab==="health" && <HealthSection healthData={healthData} setHealthData={setHealthData} />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById("root"));
+</script>
+</body>
+</html>
